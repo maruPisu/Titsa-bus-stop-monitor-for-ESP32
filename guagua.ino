@@ -10,8 +10,6 @@
 #define STOPSIZE 2
 #define LINESIZE 20
 
-const char* ssid1 = "TP-Link_CE93";
-const char* password1 = "90016546";
 const char* ssid = "OnePlus 6T";
 const char* password = "polpolpo";
 

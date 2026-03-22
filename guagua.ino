@@ -3,25 +3,51 @@
 #include <ArduinoJson.h>
 #include "esp_wifi.h"
 #include <Adafruit_SSD1306.h>
+#include <Preferences.h>
+#include <WebServer.h>
 
 #define SCREEN_WIDTH 128
 #define SCREEN_HEIGHT 64
 #define OLED_ADDR 0x3C 
 #define STOPSIZE 2
 #define LINESIZE 20
+#define BUTTON 0
 
-const char* ssid = "OnePlus 6T";
-const char* password = "polpolpo";
+const char* ssid1 = "OnePlus 6T";
+const char* password1 = "polpolpo";
 
-const char* url1 = "https://titsa.com/ajax/xGetInfoParada.php?id_parada=1934";
-const char* url2 = "https://titsa.com/ajax/xGetInfoParada.php?id_parada=1918";
+Preferences prefs;
+WebServer server(80);
+String ip = "";
+
+// HTML form
+String html = R"rawliteral(
+<!DOCTYPE html>
+<html>
+<body>
+  <h2>ESP32 Config</h2>
+  <form action="/set">
+    Parada 1: <input type="text" name="p1"><br>
+    Parada 2: <input type="text" name="p2"><br>
+    <input type="submit" value="Save">
+  </form>
+</body>
+</html>
+)rawliteral";
+
+String parada1 = "1934";
+String parada2 = "1918";
+
+String url = "https://titsa.com/ajax/xGetInfoParada.php?id_parada=";
+String url1 = "https://titsa.com/ajax/xGetInfoParada.php?id_parada=1934";
+String url2 = "https://titsa.com/ajax/xGetInfoParada.php?id_parada=1918";
 
 // Variabili globali
 int tiempo_actual = -1;
 unsigned long lastUpdate = 0;
 unsigned long lastRequest = 0;
 
-const unsigned long requestInterval = 10000; // 1 minuto
+const unsigned long requestInterval = 30000; // 30s
 const unsigned long countdownInterval = 60000; // decremento ogni minuto
 
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
@@ -112,6 +138,7 @@ void setup() {
   delay(100);
   //scan();
   initDisplay();
+  pinMode(BUTTON, INPUT_PULLUP);
 
   WiFi.mode(WIFI_STA);
   WiFi.setSleep(false);
@@ -137,22 +164,66 @@ void setup() {
     write("Connection succesful");
     Serial.print("IP: ");
     Serial.println(WiFi.localIP());
+    ip = WiFi.localIP().toString();
   } else {
     Serial.println("\nConnessione fallita");
     write("Connection failed");
     Serial.print("Status: ");
     Serial.println(WiFi.status());
   }
+  server.on("/", handleRoot);
+  server.on("/set", handleSet);
+
+  server.begin();
+
+  prefs.begin("config", true);  // read-only
+  parada1 = prefs.getString("parada1", "1934");
+  parada2 = prefs.getString("parada2", "1918");
+  prefs.end();
+}
+
+void handleRoot() {
+  server.send(200, "text/html", html);
+}
+
+void handleSet() {
+  bool change = false;
+  if (server.hasArg("p1")) {
+    parada1 = server.arg("p1");
+    prefs.begin("config", false);
+    prefs.putString("parada1", parada1);
+    prefs.end();
+    change = true;
+  }
+  if (server.hasArg("p2")) {
+    parada2 = server.arg("p2");
+    prefs.begin("config", false);
+    prefs.putString("parada2", parada2);
+    prefs.end();
+    change = true;
+  }
+  if(change){
+    for (int i = 0; i < STOPSIZE; i++) {
+      allStops[i] = StopData();  // reset to default
+    }
+  }
+  server.send(200, "text/html", "Saved!");
 }
 
 void loop() {
   unsigned long now = millis();
+  server.handleClient();
+
+  bool reading = digitalRead(BUTTON);
+  if (reading == LOW) {
+    write(ip.c_str());
+  }
 
   // Richiesta ogni minuto
   if (now - lastRequest > requestInterval) {
     lastRequest = now;
-    fetchData(url1);
-    fetchData(url2);
+    fetchData(String(url + parada1).c_str());
+    fetchData(String(url + parada2).c_str());
   }
 
   // Countdown stimato
